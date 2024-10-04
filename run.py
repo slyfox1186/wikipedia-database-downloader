@@ -1,8 +1,8 @@
+#!/usr/bin/env python3
+
 # Name: download_wikipedia.py
 # GitHub: https://github.com/slyfox1186/wikipedia-database-downloader/blob/main/download_wikipedia.py
 # Note: These files are typically over 19 GB compressed and can expand to over 86 GB when decompressed!
-
-#!/usr/bin/env python3
 
 import aiofiles
 import aiohttp
@@ -34,12 +34,14 @@ class ServiceUnavailableError(Exception):
 # --------------------- Connection Manager ---------------------
 
 class ConnectionManager:
-    def __init__(self, initial_connections: int, cooldown_period: int):
+    def __init__(self, initial_connections: int, cooldown_period: int, max_backoff: float, min_connections: int = 1):
         self.current_connections = initial_connections
         self.lock = asyncio.Lock()
         self.cooldown_period = cooldown_period  # in seconds
         self.last_reduction_time = None
-        self.cooldown_message_sent = False  # New flag to track if cooldown message has been sent
+        self.cooldown_message_sent = False  # Flag to track if cooldown message has been sent
+        self.max_backoff = max_backoff
+        self.min_connections = min_connections  # Minimum number of connections
 
     async def decrease_connections(self):
         async with self.lock:
@@ -55,16 +57,16 @@ class ConnectionManager:
 
             previous = self.current_connections
             if self.current_connections > 4:
-                self.current_connections = max(self.current_connections - 2, 4)
-            elif self.current_connections > 1:
-                self.current_connections = max(self.current_connections - 1, 1)
-            # Else, keep it at 1
+                self.current_connections = max(self.current_connections - 1, 4)
+            elif self.current_connections > self.min_connections:
+                self.current_connections = max(self.current_connections - 1, self.min_connections)
+            # Else, keep it at min_connections
 
             if self.current_connections < previous:
                 self.last_reduction_time = current_time
                 self.cooldown_message_sent = False  # Reset the flag
-                logger.info(f"Reducing number of connections to {self.current_connections} and retrying...")
-                logger.info(f"Max connections being tested in the next loop: {self.current_connections}")
+                logger.debug(f"Reducing number of connections to {self.current_connections} and retrying...")
+                logger.debug(f"Max connections being tested in the next loop: {self.current_connections}")
 
     async def can_reduce(self):
         async with self.lock:
@@ -87,19 +89,20 @@ class ConnectionManager:
 DEFAULT_CONFIG = {
     'url': Config.DOWNLOAD_URL_FULL,
     'download_folder': Config.DOWNLOAD_FOLDER,
-    'num_connections': Config.MAX_CONNECTIONS,
+    'num_connections': Config.MAX_CONNECTIONS,  # Initial number of connections
     'chunk_size': Config.CHUNK_SIZE,
-    'max_retries': Config.MAX_RETRIES,
-    'retry_backoff': Config.RETRY_BACKOFF,
+    'max_retries': Config.MAX_RETRIES,  # Maximum number of retries
+    'retry_backoff': Config.RETRY_BACKOFF,  # Backoff factor
     'timeout': Config.WEB_TIMEOUT,
     'checksum': Config.CHECKSUM,
     'log_file': Config.LOG_FILE,
-    'user_agent': Config.USER_AGENT,  # Added user_agent to DEFAULT_CONFIG
+    'user_agent': Config.USER_AGENT,
     'connection_cooldown': Config.CONNECTION_COOLDOWN,  # Cooldown period in seconds
     'optimal_connection_timeout': Config.OPTIMAL_CONNECTION_TIMEOUT,  # 5 minutes
     'increase_failure_limit': Config.INCREASE_FAILURE_LIMIT,
     'increase_wait_time': Config.INCREASE_WAIT_TIME,  # 15 minutes
     'max_average_parts': Config.MAX_AVERAGE_PARTS,  # Maximum size per part in megabytes
+    'max_backoff': Config.MAX_BACKOFF  # Maximum backoff time in seconds
 }
 
 # --------------------- Logging Setup ---------------------
@@ -151,7 +154,7 @@ def load_config(args):
                 logger.info(f"Configuration loaded from {args.config}.")
                 logger.debug(f"User configuration: {user_config}")
             else:
-                logger.info(f"Configuration file {args.config} is empty.")
+                logger.warning(f"Configuration file {args.config} is empty.")
         except Exception as e:
             logger.error(f"Failed to load configuration file {args.config}: {e}")
             sys.exit(1)
@@ -159,34 +162,34 @@ def load_config(args):
     # Override with command-line arguments if provided
     if args.url:
         config['url'] = args.url
-        logger.debug(f"Overriding URL with command-line argument: {args.url}")
+        logger.info(f"Using URL from command-line argument: {args.url}")
     if args.folder:
         config['download_folder'] = args.folder
-        logger.debug(f"Overriding download folder with command-line argument: {args.folder}")
+        logger.info(f"Using download folder from command-line argument: {args.folder}")
     if args.connections:
         config['num_connections'] = args.connections
-        logger.debug(f"Overriding number of connections with command-line argument: {args.connections}")
+        logger.info(f"Using number of connections from command-line argument: {args.connections}")
     if args.chunk_size:
         config['chunk_size'] = args.chunk_size
-        logger.debug(f"Overriding chunk size with command-line argument: {args.chunk_size}")
+        logger.info(f"Using chunk size from command-line argument: {args.chunk_size}")
     if args.max_retries:
         config['max_retries'] = args.max_retries
-        logger.debug(f"Overriding max retries with command-line argument: {args.max_retries}")
+        logger.info(f"Using max retries from command-line argument: {args.max_retries}")
     if args.retry_backoff:
         config['retry_backoff'] = args.retry_backoff
-        logger.debug(f"Overriding retry backoff with command-line argument: {args.retry_backoff}")
+        logger.info(f"Using retry backoff from command-line argument: {args.retry_backoff}")
     if args.timeout:
         config['timeout'] = args.timeout
-        logger.debug(f"Overriding timeout with command-line argument: {args.timeout}")
+        logger.info(f"Using timeout from command-line argument: {args.timeout}")
     if args.checksum:
         config['checksum'] = args.checksum
-        logger.debug(f"Overriding checksum with command-line argument: {args.checksum}")
+        logger.info(f"Using checksum from command-line argument: {args.checksum}")
     if args.user_agent:
         config['user_agent'] = args.user_agent
-        logger.debug(f"Overriding user agent with command-line argument: {args.user_agent}")
+        logger.info(f"Using user agent from command-line argument: {args.user_agent}")
     if args.max_average_parts:
         config['max_average_parts'] = args.max_average_parts
-        logger.debug(f"Overriding max_average_parts with command-line argument: {args.max_average_parts}")
+        logger.info(f"Using max_average_parts from command-line argument: {args.max_average_parts}")
     return config
 
 # --------------------- Helper Functions ---------------------
@@ -205,7 +208,7 @@ def get_temp_file_path(url: str) -> Path:
     return temp_file
 
 async def prompt_user(prompt: str) -> bool:
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     response = await loop.run_in_executor(None, lambda: input(prompt).strip().lower())
     return response in ['y', 'yes', '']
 
@@ -227,21 +230,21 @@ async def save_ideal_connections(temp_file: Path, connections: int):
         async with aiofiles.open(temp_file, 'w') as f:
             data = {'ideal_connections': connections}
             await f.write(yaml.dump(data))
-        logger.info(f"Ideal max connections ({connections}) saved to {temp_file}.")
+        logger.debug(f"Ideal max connections ({connections}) saved to {temp_file}.")
     except Exception as e:
-        logger.error(f"Failed to save ideal connections to temp file: {e}")
+        logger.debug(f"Failed to save ideal connections to temp file: {e}")
 
 async def get_user_preference(url: str, default_connections: int) -> int:
     temp_file = get_temp_file_path(url)
     ideal_connections = await get_ideal_connections(temp_file)
     if ideal_connections:
-        logger.info(f"Temporary file storing optimal connections: {temp_file}")
-        prompt = f"Use previously saved ideal max connections ({ideal_connections}) for URL '{url}'? [Y/n]: "
+        logger.debug(f"Temporary file storing optimal connections: {temp_file}")
+        prompt = f"\nUse previously saved ideal max connections ({ideal_connections}) for URL '{url}'? [Y/n]: "
         use_ideal = await prompt_user(prompt)
         if use_ideal:
-            logger.info(f"Using ideal max connections: {ideal_connections}")
+            logger.debug(f"Using ideal max connections: {ideal_connections}")
             return ideal_connections
-    logger.info(f"Using default number of connections: {default_connections}")
+    logger.debug(f"Using default number of connections: {default_connections}")
     return default_connections
 
 # --------------------- File Size Retrieval ---------------------
@@ -256,19 +259,15 @@ async def get_file_size(session: ClientSession, url: str) -> (int, bool):
             else:
                 raise Exception(f"Failed to get file size. HTTP status: {response.status}")
     except Exception as e:
-        logger.error(f"Error fetching file size: {e}")
+        logger.debug(f"Error fetching file size: {e}")
         raise
 
 # --------------------- Download Range Function ---------------------
 
-# Add this import at the top of the file
-from functools import partial
-
 # Add this global variable near the top of the file
 parts_downloaded = 0
 
-# Modify the download_range function
-async def download_range(session: ClientSession, url: str, start: int, end: int, part_path: Path, retries: int, backoff: float, progress: tqdm, user_agent: str, conn_manager: ConnectionManager, total_parts: int, total_size: int):
+async def download_range(session: ClientSession, url: str, start: int, end: int, part_path: Path, retries: int, backoff: float, progress: tqdm, user_agent: str, conn_manager: ConnectionManager, total_parts: int, total_size: int, max_backoff: float):
     global parts_downloaded
     headers = {
         'Range': f'bytes={start}-{end}',
@@ -301,27 +300,35 @@ async def download_range(session: ClientSession, url: str, start: int, end: int,
                     
                     end_time = time.time()
                     download_time = end_time - start_time
-                    download_speed = bytes_downloaded / download_time / 1024 / 1024  # in MB/s
+                    if download_time > 0:
+                        download_speed = bytes_downloaded / download_time / 1024 / 1024  # in MB/s
+                    else:
+                        download_speed = 0.0
                     
                     parts_downloaded += 1
                     percentage = int((parts_downloaded / total_parts) * 100)
-                    logger.info(f"Successfully downloaded part: {parts_downloaded} of {total_parts} ::: {percentage}% ::: Speed: {download_speed:.2f} MB/s")
+                    logger.info(f"Downloaded part: {parts_downloaded}/{total_parts} ({percentage}%) - Speed: {download_speed:.2f} MB/s")
                     return
                 elif response.status == 503:
                     attempt += 1
-                    wait = (backoff ** attempt) + random.uniform(0, 1)  # Add jitter
-                    logger.debug(f"503 Error - Service Unavailable. Retrying in {wait:.2f} seconds... (Attempt {attempt}/{retries})")
+                    retry_after = response.headers.get('Retry-After')
+                    if retry_after:
+                        wait = float(retry_after)
+                        logger.warning(f"503 Error with Retry-After: {retry_after} seconds. Retrying in {wait:.2f} seconds... (Attempt {attempt}/{retries})")
+                    else:
+                        wait = min((backoff ** attempt) + random.uniform(0, 1), max_backoff)
+                        logger.warning(f"503 Error - Service Unavailable. Retrying in {wait:.2f} seconds... (Attempt {attempt}/{retries})")
                     await conn_manager.decrease_connections()
                     await asyncio.sleep(wait)
                 else:
                     raise Exception(f"Unexpected status code {response.status}")
         except asyncio.CancelledError:
-            logger.debug(f"Download task was cancelled.")
+            logger.info(f"Download task was cancelled.")
             raise
         except Exception as e:
             attempt += 1
-            wait = (backoff ** attempt) + random.uniform(0, 1)  # Add jitter
-            logger.debug(f"Error downloading: {e}. Retrying in {wait:.2f} seconds... (Attempt {attempt}/{retries})")
+            wait = min((backoff ** attempt) + random.uniform(0, 1), max_backoff)
+            logger.warning(f"Error downloading: {e}. Retrying in {wait:.2f} seconds... (Attempt {attempt}/{retries})")
             await asyncio.sleep(wait)
     raise ServiceUnavailableError(f"Failed to download after {retries} attempts.")
 
@@ -339,9 +346,9 @@ async def merge_files(part_paths: list, destination: Path, chunk_size: int = 102
                             break
                         await outfile.write(chunk)
                         logger.debug(f"Wrote {len(chunk)} bytes from {part_path} to {destination}.")
-        logger.info("All parts merged successfully.")
+        logger.debug("All parts merged successfully.")
     except Exception as e:
-        logger.error(f"Error merging files: {e}")
+        logger.debug(f"Error merging files: {e}")
         raise
 
 # --------------------- Verify Checksum Function ---------------------
@@ -362,30 +369,30 @@ async def verify_checksum(file_path: Path, expected_checksum: str, algorithm: st
                 hash_func.update(chunk)
         calculated = hash_func.hexdigest()
         if calculated.lower() == expected_checksum.lower():
-            logger.info(f"Checksum verification passed ({algorithm}: {calculated}).")
+            logger.debug(f"Checksum verification passed ({algorithm}: {calculated}).")
         else:
             raise Exception(f"Checksum verification failed. Expected: {expected_checksum}, Got: {calculated}")
     except Exception as e:
-        logger.error(f"Error during checksum verification: {e}")
+        logger.debug(f"Error during checksum verification: {e}")
         raise
 
 # --------------------- Monitor Function ---------------------
 
 async def download_success_monitor(conn_manager: ConnectionManager, temp_file: Path, config: dict):
     """
-    Monitors the download process to determine when no 503 errors have occurred for 5 minutes.
+    Monitors the download process to determine when no 503 errors have occurred for a specified duration.
     Once the condition is met, saves the current connection count as the optimal max connections.
     Then, attempts to increase the max connections by 1 until a 503 error occurs.
-    If two consecutive increases fail, waits 15 minutes before trying again.
+    If two consecutive increases fail, waits for a specified time before trying again.
     """
     duration = config.get('optimal_connection_timeout', 300)  # 5 minutes in seconds
     increase_failure_limit = config.get('increase_failure_limit', 2)
     increase_wait_time = config.get('increase_wait_time', 900)  # 15 minutes in seconds
 
-    logger.debug("Starting download success monitor.")
+    logger.info("Starting download success monitor.")
 
     # Phase 1: Wait for initial stability
-    logger.debug("Phase 1: Waiting for initial stability.")
+    logger.info("Phase 1: Waiting for initial stability.")
     while True:
         await asyncio.sleep(10)  # Check every 10 seconds
         async with conn_manager.lock:
@@ -395,7 +402,7 @@ async def download_success_monitor(conn_manager: ConnectionManager, temp_file: P
                 continue  # No reductions yet
             elapsed = time.time() - last_reduction
             if elapsed >= duration:
-                # No reductions in the last 5 minutes
+                # No reductions in the last 'duration' seconds
                 await save_ideal_connections(temp_file, conn_manager.current_connections)
                 logger.info(f"No 503 errors detected for {duration / 60} minutes. Ideal max connections ({conn_manager.current_connections}) saved.")
                 break  # Exit Phase 1
@@ -404,7 +411,7 @@ async def download_success_monitor(conn_manager: ConnectionManager, temp_file: P
                 logger.debug(f"Phase 1: {elapsed:.1f} seconds since last reduction. {remaining:.1f} seconds remaining.")
 
     # Phase 2: Attempt to optimize connections
-    logger.debug("Phase 2: Starting connection optimization.")
+    logger.info("Phase 2: Starting connection optimization.")
     failure_count = 0
 
     while True:
@@ -412,14 +419,14 @@ async def download_success_monitor(conn_manager: ConnectionManager, temp_file: P
         async with conn_manager.lock:
             current_connections = conn_manager.current_connections
             new_connections = current_connections + 1
-            logger.info(f"Attempting to increase connections from {current_connections} to {new_connections}.")
+            logger.debug(f"Attempting to increase connections from {current_connections} to {new_connections}.")
 
             # Update the connection count temporarily
             conn_manager.current_connections = new_connections
 
         # Save the increased connection count
         await save_ideal_connections(temp_file, new_connections)
-        logger.info(f"Max connections increased to {new_connections}.")
+        logger.debug(f"Max connections increased to {new_connections}.")
 
         # Allow some time for the download to stabilize
         stabilization_time = 60  # 1 minute to observe
@@ -435,14 +442,14 @@ async def download_success_monitor(conn_manager: ConnectionManager, temp_file: P
                 conn_manager.current_connections = current_connections
                 failure_count += 1
                 await save_ideal_connections(temp_file, current_connections)
-                logger.info(f"Max connections reverted to {current_connections} due to failure.")
+                logger.debug(f"Max connections reverted to {current_connections} due to failure.")
                 if failure_count >= increase_failure_limit:
                     logger.debug(f"Reached failure limit of {increase_failure_limit}. Waiting for {increase_wait_time / 60} minutes before retrying.")
                     await asyncio.sleep(increase_wait_time)
                     failure_count = 0  # Reset failure count after waiting
             else:
                 # No reductions occurred, the increase was successful
-                logger.info(f"Increase to {new_connections} connections was successful.")
+                logger.debug(f"Increase to {new_connections} connections was successful.")
                 failure_count = 0  # Reset failure count on success
 
 # --------------------- Main Download Function ---------------------
@@ -456,193 +463,256 @@ async def download_file(config):
     temp_dir = download_folder / f".{file_name}.parts"
     temp_dir.mkdir(exist_ok=True)
 
-    logger.info("Please ensure you have sufficient storage space. The compressed file is typically over 19 GB and expands to over 86 GB when decompressed.")
-    logger.info("Also check your system's file size limits, especially on 32-bit systems.")
+    logger.warning("Please ensure you have sufficient storage space. The compressed file is typically over 19 GB and expands to over 86 GB when decompressed.")
+    logger.warning("Also check your system's file size limits, especially on 32-bit systems.")
 
     default_connections = config['num_connections']
     starting_connections = await get_user_preference(url, default_connections)
 
-    conn_manager = ConnectionManager(initial_connections=starting_connections, cooldown_period=config.get('connection_cooldown', 30))
+    conn_manager = ConnectionManager(
+        initial_connections=starting_connections,
+        cooldown_period=config.get('connection_cooldown', 30),
+        max_backoff=config.get('max_backoff', 60),
+        min_connections=1
+    )
     num_connections = await conn_manager.get_current_connections()
 
-    # Start the monitor task to save optimal connections after 5 minutes of no 503 errors
+    # Start the monitor task
     temp_file = get_temp_file_path(url)
     monitor_task = asyncio.create_task(download_success_monitor(conn_manager, temp_file, config))
 
-    while num_connections >= 1:
-        logger.info(f"Attempting download with {num_connections} connection(s).")
-        connector = TCPConnector(limit=num_connections, force_close=True)
-        timeout = ClientTimeout(total=config['timeout'])
-        async with ClientSession(connector=connector, timeout=timeout) as session:
-            logger.info(f"Fetching file information for {url}...")
+    # Define a cleanup task to cancel monitor_task if download completes or fails
+    async def cleanup():
+        if not monitor_task.done():
+            monitor_task.cancel()
             try:
-                total_size, accept_ranges = await get_file_size(session, url)
-            except Exception as e:
-                logger.error(f"Unable to retrieve file information: {e}")
-                sys.exit(1)
+                await monitor_task
+            except asyncio.CancelledError:
+                logger.debug("Monitor task cancelled.")
 
-            if total_size == 0:
-                logger.error("File size is 0. Exiting.")
-                sys.exit(1)
-
-            logger.info(f"File size: {total_size / (1024**3):.2f} GB")
-            if not accept_ranges:
-                logger.debug("Server does not support byte ranges. Falling back to single connection.")
-                await conn_manager.decrease_connections()
-                num_connections = await conn_manager.get_current_connections()
-                continue
-
-            # Determine part division based on MAX_AVERAGE_PARTS
-            max_average_parts = config.get('max_average_parts', None)
-
-            if max_average_parts:
-                # Calculate the number of parts based on the maximum average part size
-                part_size = max_average_parts * 1024 * 1024  # Convert MB to bytes
-                calculated_parts = math.ceil(total_size / part_size)
-                part_size = math.ceil(total_size / calculated_parts)  # Recalculate to cover the entire file
-                logger.info(f"Using {calculated_parts} part(s) with part size {part_size / (1024**2):.2f} MB each based on MAX_AVERAGE_PARTS.")
-                part_paths = [temp_dir / f"part_{i}" for i in range(calculated_parts)]
-                max_total_parts = calculated_parts  # Override max_total_parts for resuming
-            else:
-                logger.error("MAX_AVERAGE_PARTS is not set. Please set it to proceed with the download.")
-                sys.exit(1)
-
-            # Determine ranges and check for existing parts
-            ranges = []
-            initial_progress = 0
-            parts_found = 0
-            parts_to_download = 0
-
-            for i in range(max_total_parts):
-                start = part_size * i
-                end = min(start + part_size - 1, total_size - 1)
-                part_path = part_paths[i]
-                
-                if part_path.exists():
-                    existing_size = part_path.stat().st_size
-                    expected_size = end - start + 1
-                    if existing_size == expected_size:
-                        parts_found += 1
-                        initial_progress += existing_size
-                        ranges.append(None)  # Indicate that this part is complete
-                    elif existing_size < expected_size:
-                        parts_to_download += 1
-                        resume_start = start + existing_size
-                        ranges.append((resume_start, end))
-                        initial_progress += existing_size
-                    else:
-                        parts_to_download += 1
-                        logger.warning(f"Part {i} has unexpected size ({existing_size} bytes). Re-downloading.")
-                        part_path.unlink()  # Remove corrupted part
-                        ranges.append((start, end))
-                else:
-                    parts_to_download += 1
-                    ranges.append((start, end))
-
-            logger.info(f"Found {parts_found} complete part(s). {parts_to_download} part(s) left to download.")
-
-            # Create a progress tracker without visual output
-            progress_tracker = tqdm(total=total_size, unit='B', unit_scale=True, desc=file_name, initial=initial_progress, disable=True)
-
-            # Create download tasks
-            tasks = []
-            global parts_downloaded
-            parts_downloaded = 0  # Reset the counter before starting new downloads
-            for i, range_info in enumerate(ranges):
-                if range_info is not None:
-                    start, end = range_info
-                    part_path = part_paths[i]
-                    task = download_range(
-                        session=session,
-                        url=url,
-                        start=start,
-                        end=end,
-                        part_path=part_path,
-                        retries=config['max_retries'],
-                        backoff=config['retry_backoff'],
-                        progress=progress_tracker,
-                        user_agent=config['user_agent'],
-                        conn_manager=conn_manager,
-                        total_parts=parts_to_download,
-                        total_size=total_size
-                    )
-                    tasks.append(task)
-
-            # Execute download tasks
-            try:
-                await asyncio.gather(*tasks)
-            finally:
-                progress_tracker.close()
-
-            # Merge parts
-            logger.info("Merging parts...")
-            try:
-                await merge_files(part_paths, destination)
-            except Exception as e:
-                logger.error(f"Failed to merge parts: {e}")
-                sys.exit(1)
-
-            # Remove temporary parts directory
-            try:
-                shutil.rmtree(temp_dir)
-                logger.info(f"Removed temporary directory {temp_dir}.")
-            except Exception as e:
-                logger.warning(f"Could not remove temporary directory {temp_dir}: {e}")
-
-            # Verify checksum if provided
-            if config['checksum']:
-                logger.info("Verifying checksum...")
-                checksum = config['checksum']
-                if ':' in checksum:
-                    algorithm, expected = checksum.split(':', 1)
-                else:
-                    algorithm, expected = 'md5', checksum
+    try:
+        while num_connections >= conn_manager.min_connections:
+            logger.info(f"Attempting download with {num_connections} connection(s).")
+            connector = TCPConnector(limit=num_connections, force_close=True)
+            timeout = ClientTimeout(total=config['timeout'])
+            async with ClientSession(connector=connector, timeout=timeout) as session:
+                logger.info(f"Fetching file information for {url}...")
                 try:
-                    await verify_checksum(destination, expected, algorithm)
+                    total_size, accept_ranges = await get_file_size(session, url)
                 except Exception as e:
-                    logger.error(f"Checksum verification failed: {e}")
+                    logger.error(f"Unable to retrieve file information: {e}")
+                    await cleanup()
                     sys.exit(1)
 
-            logger.info(f"Download completed successfully: {destination}")
-            break  # Exit the loop upon successful download
+                if total_size == 0:
+                    logger.error("File size is 0. Exiting.")
+                    await cleanup()
+                    sys.exit(1)
+
+                logger.info(f"File size: {total_size / (1024**3):.2f} GB")
+                if not accept_ranges:
+                    logger.warning("Server does not support byte ranges. Falling back to single connection.")
+                    await conn_manager.decrease_connections()
+                    num_connections = await conn_manager.get_current_connections()
+                    continue
+
+                # Determine part division based on MAX_AVERAGE_PARTS
+                max_average_parts = config.get('max_average_parts', None)
+
+                if max_average_parts:
+                    # Calculate the number of parts based on the maximum average part size
+                    part_size = max_average_parts * 1024 * 1024  # Convert MB to bytes
+                    calculated_parts = math.ceil(total_size / part_size)
+                    part_size = math.ceil(total_size / calculated_parts)  # Recalculate to cover the entire file
+                    logger.debug(f"Using {calculated_parts} part(s) with part size {part_size / (1024**2):.2f} MB each based on MAX_AVERAGE_PARTS.")
+                    part_paths = [temp_dir / f"part_{i}" for i in range(calculated_parts)]
+                    max_total_parts = calculated_parts  # Override max_total_parts for resuming
+                else:
+                    logger.debug("MAX_AVERAGE_PARTS is not set. Please set it to proceed with the download.")
+                    await cleanup()
+                    sys.exit(1)
+
+                # Determine ranges and check for existing parts
+                ranges = []
+                initial_progress = 0
+                parts_found = 0
+                parts_to_download = 0
+
+                for i in range(max_total_parts):
+                    start = part_size * i
+                    end = min(start + part_size - 1, total_size - 1)
+                    part_path = part_paths[i]
+                    
+                    if part_path.exists():
+                        existing_size = part_path.stat().st_size
+                        expected_size = end - start + 1
+                        if existing_size == expected_size:
+                            parts_found += 1
+                            initial_progress += existing_size
+                            ranges.append(None)  # Indicate that this part is complete
+                        elif existing_size < expected_size:
+                            parts_to_download += 1
+                            resume_start = start + existing_size
+                            ranges.append((resume_start, end))
+                            initial_progress += existing_size
+                        else:
+                            parts_to_download += 1
+                            logger.debug(f"Part {i} has unexpected size ({existing_size} bytes). Re-downloading.")
+                            part_path.unlink()  # Remove corrupted part
+                            ranges.append((start, end))
+                    else:
+                        parts_to_download += 1
+                        ranges.append((start, end))
+
+                logger.info(f"Found {parts_found} complete part(s). {parts_to_download} part(s) left to download.")
+
+                # Create a progress tracker without visual output
+                progress_tracker = tqdm(total=total_size, unit='B', unit_scale=True, desc=file_name, initial=initial_progress, disable=True)
+
+                # Create download tasks
+                tasks = []
+                global parts_downloaded
+                parts_downloaded = 0  # Reset the counter before starting new downloads
+                max_backoff = config.get('max_backoff', 60)
+                for i, range_info in enumerate(ranges):
+                    if range_info is not None:
+                        start, end = range_info
+                        part_path = part_paths[i]
+                        task = download_range(
+                            session=session,
+                            url=url,
+                            start=start,
+                            end=end,
+                            part_path=part_path,
+                            retries=config['max_retries'],
+                            backoff=config['retry_backoff'],
+                            progress=progress_tracker,
+                            user_agent=config['user_agent'],
+                            conn_manager=conn_manager,
+                            total_parts=parts_to_download,
+                            total_size=total_size,
+                            max_backoff=max_backoff
+                        )
+                        tasks.append(task)
+
+                # Execute download tasks
+                try:
+                    await asyncio.gather(*tasks)
+                except asyncio.CancelledError:
+                    logger.warning("Download was cancelled.")
+                    await cleanup()
+                    raise
+                except ServiceUnavailableError as e:
+                    logger.error(f"Service unavailable: {e}")
+                    await conn_manager.decrease_connections()
+                    num_connections = await conn_manager.get_current_connections()
+                    if num_connections < conn_manager.min_connections:
+                        logger.error("Minimum number of connections reached. Exiting.")
+                        await cleanup()
+                        sys.exit(1)
+                    else:
+                        logger.info(f"Retrying download with {num_connections} connection(s).")
+                        continue  # Retry the loop with fewer connections
+                finally:
+                    progress_tracker.close()
+
+                # Merge parts
+                logger.info("Merging parts...")
+                try:
+                    await merge_files(part_paths, destination)
+                except Exception as e:
+                    logger.error(f"Failed to merge parts: {e}")
+                    await cleanup()
+                    sys.exit(1)
+
+                # Remove temporary parts directory
+                try:
+                    shutil.rmtree(temp_dir)
+                    logger.info(f"Removed temporary directory {temp_dir}.")
+                except Exception as e:
+                    logger.warning(f"Could not remove temporary directory {temp_dir}: {e}")
+
+                # Verify checksum if provided
+                if config['checksum']:
+                    logger.info("Verifying checksum...")
+                    checksum = config['checksum']
+                    if ':' in checksum:
+                        algorithm, expected = checksum.split(':', 1)
+                    else:
+                        algorithm, expected = 'md5', checksum
+                    try:
+                        await verify_checksum(destination, expected, algorithm)
+                    except Exception as e:
+                        logger.debug(f"Checksum verification failed: {e}")
+                        await cleanup()
+                        sys.exit(1)
+
+                logger.info(f"Download completed successfully: {destination}")
+                await cleanup()
+                break  # Exit the loop upon successful download
+
+    except asyncio.CancelledError:
+        logger.debug("Download tasks were cancelled.")
+        await cleanup()
+        sys.exit(1)
+    except ServiceUnavailableError as e:
+        logger.debug(f"Service unavailable error: {e}")
+        await cleanup()
+        sys.exit(1)
+    except Exception as e:
+        logger.debug(f"An error occurred: {e}")
+        await cleanup()
+        sys.exit(1)
 
 # --------------------- Signal Handler ---------------------
 
-def signal_handler(loop, signal_received):
-    logger.info(f"Received exit signal {signal_received.name}... Initiating graceful shutdown.")
-    for task in asyncio.all_tasks(loop):
+def setup_signal_handlers(loop):
+    """
+    Sets up signal handlers for graceful shutdown.
+    """
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, lambda s=sig: asyncio.create_task(handle_signal(s)))
+            logger.debug(f"Signal handler added for {sig.name}.")
+        except NotImplementedError:
+            logger.debug(f"Signal handling for {sig.name} is not supported on this platform.")
+
+async def handle_signal(signal_received):
+    """
+    Handles received signals by logging and cancelling all tasks.
+    """
+    logger.debug(f"Received exit signal {signal_received.name}... Initiating graceful shutdown.")
+    tasks = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
+    for task in tasks:
         task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    logger.debug("All tasks have been cancelled.")
+    sys.exit(0)
 
 # --------------------- Entry Point ---------------------
 
-def main():
+async def async_main():
     args = parse_args()
     config = load_config(args)
 
-    logger.info(f"Final configuration: {config}")
+    logger.debug(f"Final configuration: {config}")
 
+    loop = asyncio.get_running_loop()
+    setup_signal_handlers(loop)
+
+    await download_file(config)
+
+def main():
     try:
-        loop = asyncio.get_event_loop()
-        # Register signal handlers here to ensure they're set before the download starts
-        for s in (signal.SIGINT, signal.SIGTERM):
-            try:
-                loop.add_signal_handler(s, partial(signal_handler, loop, s))
-                logger.info(f"Signal handler added for {s.name}.")
-            except NotImplementedError:
-                logger.error(f"Signal handling for {s.name} is not supported on this platform.")
-
-        loop.run_until_complete(download_file(config))
+        asyncio.run(async_main())
     except KeyboardInterrupt:
-        logger.warning("Download interrupted by user.")
+        logger.debug("Download interrupted by user.")
         sys.exit(1)
-    except asyncio.CancelledError:
-        logger.warning("Download tasks were cancelled.")
-        sys.exit(1)
+    except SystemExit:
+        pass
     except Exception as e:
-        logger.error(f"An error occurred: {e}")
+        logger.debug(f"An unexpected error occurred: {e}")
         sys.exit(1)
-    finally:
-        loop.close()
 
 if __name__ == "__main__":
     main()
