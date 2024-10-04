@@ -25,5 +25,6 @@ class Config:
     )
     # -------------------- Wikipedia Setup-------------------
     DOWNLOAD_FOLDER = './database_files'
-    DOWNLOAD_URL_FULL = 'https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-pages-articles.xml.bz2' # For a list of possible downloads visit: https://dumps.wikimedia.org/enwiki/latest/
-    DOWNLOAD_URL_TEST = 'https://dumps.wikimedia.org/simplewiki/latest/simplewiki-latest-stub-articles.xml.gz' # For a list of possible downloads visit: https://dumps.wikimedia.org/simplewiki/latest/
+    # For a list of possible downloads visit: https://dumps.wikimedia.org/enwiki/latest/ || https://dumps.wikimedia.org/simplewiki/latest/
+    DOWNLOAD_URL_FULL = 'https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-pages-articles.xml.bz2'
+    DOWNLOAD_URL_TEST = 'https://dumps.wikimedia.org/simplewiki/latest/simplewiki-latest-stub-articles.xml.gz'
