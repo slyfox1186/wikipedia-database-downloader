@@ -1,6 +1,6 @@
-# download_wikipedia.py
-# GitHub: 
-# Note: # This file is typically over 19 GB compressed and expands to over 86 GB when decompressed.
+# Name: download_wikipedia.py
+# GitHub: https://github.com/slyfox1186/wikipedia-database-downloader/blob/main/download_wikipedia.py
+# Note: These files are typically over 19 GB compressed and can expand to over 86 GB when decompressed!
 
 #!/usr/bin/env python3
 
