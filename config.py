@@ -9,7 +9,7 @@ class Config:
     # --------------------- Log Setup ----------------------
     LOG_FILE = 'download_wikipedia.log'
     LOG_FORMAT = os.environ.get('LOG_FORMAT', '[%(asctime)s] [%(levelname)s] %(message)s')
-    LOG_LEVEL = 'INFO   '
+    LOG_LEVEL = 'INFO'
     LOG_MAX_BYTES = 10485760  # 10 MB
     # -------------------- Internet Setup--------------------
     CHECKSUM = None
