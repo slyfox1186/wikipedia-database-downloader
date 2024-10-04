@@ -101,7 +101,7 @@ DEFAULT_CONFIG = {
     'optimal_connection_timeout': Config.OPTIMAL_CONNECTION_TIMEOUT,  # 5 minutes
     'increase_failure_limit': Config.INCREASE_FAILURE_LIMIT,
     'increase_wait_time': Config.INCREASE_WAIT_TIME,  # 15 minutes
-    'max_average_parts': Config.MAX_AVERAGE_PARTS,  # Maximum size per part in megabytes
+    'max_average_parts': Config.MAX_PART_SIZE,  # Maximum size per part in megabytes
     'max_backoff': Config.MAX_BACKOFF  # Maximum backoff time in seconds
 }
 
@@ -239,7 +239,8 @@ async def get_user_preference(url: str, default_connections: int) -> int:
     ideal_connections = await get_ideal_connections(temp_file)
     if ideal_connections:
         logger.debug(f"Temporary file storing optimal connections: {temp_file}")
-        prompt = f"\nUse previously saved ideal max connections ({ideal_connections}) for URL '{url}'? [Y/n]: "
+        print()
+        prompt = f"Use previously saved ideal max connections ({ideal_connections}) for URL '{url}'? [Y/n]: "
         use_ideal = await prompt_user(prompt)
         if use_ideal:
             logger.debug(f"Using ideal max connections: {ideal_connections}")
@@ -516,7 +517,7 @@ async def download_file(config):
                     num_connections = await conn_manager.get_current_connections()
                     continue
 
-                # Determine part division based on MAX_AVERAGE_PARTS
+                # Determine part division based on MAX_PART_SIZE
                 max_average_parts = config.get('max_average_parts', None)
 
                 if max_average_parts:
@@ -524,11 +525,10 @@ async def download_file(config):
                     part_size = max_average_parts * 1024 * 1024  # Convert MB to bytes
                     calculated_parts = math.ceil(total_size / part_size)
                     part_size = math.ceil(total_size / calculated_parts)  # Recalculate to cover the entire file
-                    logger.debug(f"Using {calculated_parts} part(s) with part size {part_size / (1024**2):.2f} MB each based on MAX_AVERAGE_PARTS.")
+                    logger.debug(f"Using {calculated_parts} part(s) with part size {part_size / (1024**2):.2f} MB each based on MAX_PART_SIZE.")
                     part_paths = [temp_dir / f"part_{i}" for i in range(calculated_parts)]
-                    max_total_parts = calculated_parts  # Override max_total_parts for resuming
                 else:
-                    logger.debug("MAX_AVERAGE_PARTS is not set. Please set it to proceed with the download.")
+                    logger.debug("MAX_PART_SIZE is not set. Please set it to proceed with the download.")
                     await cleanup()
                     sys.exit(1)
 
@@ -538,7 +538,7 @@ async def download_file(config):
                 parts_found = 0
                 parts_to_download = 0
 
-                for i in range(max_total_parts):
+                for i in range(calculated_parts):
                     start = part_size * i
                     end = min(start + part_size - 1, total_size - 1)
                     part_path = part_paths[i]
