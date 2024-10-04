@@ -1,4 +1,4 @@
-# Wikipedia Dump Downloader
+# Wikipedia Database Downloader
 
 An efficient and reliable Python script for downloading Wikipedia database dumps. This tool supports multi-threaded downloads, resume functionality, and automatic retry with connection reduction in case of server errors.
 
@@ -41,8 +41,8 @@ An efficient and reliable Python script for downloading Wikipedia database dumps
 
 1. Clone this repository:
    ```
-   git clone https://github.com/yourusername/wikipedia-dump-downloader.git
-   cd wikipedia-dump-downloader
+   git clone https://github.com/yourusername/wikipedia-database-downloader.git
+   cd wikipedia-database-downloader
    ```
 
 2. Install the required packages:
