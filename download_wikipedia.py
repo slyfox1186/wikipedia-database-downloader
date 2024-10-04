@@ -287,6 +287,8 @@ async def download_range(session: ClientSession, url: str, start: int, end: int,
                         mode = 'wb'
                         logger.debug(f"Creating new part file {part_path} in 'wb' mode.")
 
+                    start_time = time.time()
+                    bytes_downloaded = 0
                     async with aiofiles.open(part_path, mode) as f:
                         if mode == 'rb+':
                             await f.seek(start)
@@ -294,10 +296,16 @@ async def download_range(session: ClientSession, url: str, start: int, end: int,
                         async for chunk in response.content.iter_chunked(1024 * 1024):  # 1MB chunks
                             if chunk:
                                 await f.write(chunk)
+                                bytes_downloaded += len(chunk)
                                 progress.update(len(chunk))
+                    
+                    end_time = time.time()
+                    download_time = end_time - start_time
+                    download_speed = bytes_downloaded / download_time / 1024 / 1024  # in MB/s
+                    
                     parts_downloaded += 1
                     percentage = int((parts_downloaded / total_parts) * 100)
-                    logger.info(f"Successfully downloaded part: {parts_downloaded} of {total_parts} ::: {percentage}%")
+                    logger.info(f"Successfully downloaded part: {parts_downloaded} of {total_parts} ::: {percentage}% ::: Speed: {download_speed:.2f} MB/s")
                     return
                 elif response.status == 503:
                     attempt += 1
