@@ -1,0 +1,4 @@
+aiofiles
+aiohttp
+PyYAML
+tqdm
